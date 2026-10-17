@@ -1,0 +1,36 @@
+name: Native debugger checks
+on:
+  push:
+    paths:
+      - 'downloads/dbg-local-v0.1.zip'
+      - '.github/workflows/native-debugger.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-gdb:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: '1'
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: >-
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-gdb
+      - name: Extract the exact downloadable package
+        run: |
+          python -m zipfile -e downloads/dbg-local-v0.1.zip unpacked
+          cp downloads/dbg-local-v0.1.zip unpacked/dbg-local/
+      - name: Require native tools and run all Python checks
+        run: |
+          cd unpacked/dbg-local
+          python -c "import shutil; assert shutil.which('gdb') and shutil.which('gcc')"
+          python -m unittest discover -s tests -v
