@@ -1,0 +1,4 @@
+User-agent: *
+Disallow: /api/
+Allow: /
+Sitemap: https://siwoo125.github.io/sitemap.xml
