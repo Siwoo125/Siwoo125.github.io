@@ -18,9 +18,13 @@ jobs:
         shell: msys2 {0}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
+          path-type: inherit
           install: >-
             mingw-w64-ucrt-x86_64-python
             mingw-w64-ucrt-x86_64-gcc
@@ -34,3 +38,14 @@ jobs:
           cd unpacked/dbg-local
           python -c "import shutil; assert shutil.which('gdb') and shutil.which('gcc')"
           python -m unittest discover -s tests -v
+      - name: Browser behavior checks in both languages
+        run: |
+          cd unpacked/dbg-local
+          node tests/file_open.test.cjs
+          node tests/file_open.test.cjs --en
+          node tests/workbench.test.cjs
+          node tests/workbench.test.cjs --en
+          node tests/inspector.test.cjs
+          node tests/memory-tools.test.cjs
+          node tests/advanced-ui.test.cjs
+          node tests/advanced-ui.test.cjs --en
