@@ -52,6 +52,7 @@ jobs:
           node tests/ctf-ui.test.cjs
           node tests/ctf-ui.test.cjs --en
           node tests/public_debugger.test.cjs
+          node tests/browser_cpu.test.cjs
   linux-gdb:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -76,9 +77,10 @@ jobs:
         run: |
           python -c "import shutil; assert shutil.which('gdb') and shutil.which('gcc')"
           python -m unittest discover -s tests -v
-      - name: Browser CTF controls
+      - name: Browser CPU and CTF controls
         working-directory: unpacked/dbg-local
         run: |
+          node tests/browser_cpu.test.cjs
           node tests/ctf-ui.test.cjs
           node tests/ctf-ui.test.cjs --en
           node tests/file_open.test.cjs

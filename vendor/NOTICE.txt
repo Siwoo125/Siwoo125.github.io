@@ -1,0 +1,33 @@
+DBG Desk browser CPU mode — third-party software and corresponding source
+
+Unicorn.js 2.1.4, GPL-2.0
+  Binding source commit: 560284c59c11c8d6c94d537f4354339f069ddcdf
+  https://github.com/AlexAltea/unicorn.js
+  Engine source commit: 8028ec436f2d9376525352dd38ed9ed6b9f6be10
+  https://github.com/unicorn-engine/unicorn
+  Licenses: /vendor/unicorn-LICENSE.txt and /vendor/unicorn-core-COPYING.txt
+  Exact source archives available from this same site:
+    /vendor/sources/unicorn-js-2.1.4.tar.gz
+    /vendor/sources/unicorn-core.tar.gz
+  To build: extract both archives, place the core tree at unicorn/ inside the
+  binding tree, install the Emscripten SDK, Python and CMake, then run
+  python3 build.py x86 as described in the binding README. No engine patches.
+  Copyright notices and authors are retained in the source archives.
+
+Capstone.js 5.0.9 and Capstone, BSD-3-Clause
+  https://github.com/AlexAltea/capstone.js
+  Binding commit: 52da0b9c931a9f40255461250310cc96cb45c945
+  Core commit: 022575848782a4801fd150fdbc927effcbca0864
+  Licenses: /vendor/capstone-LICENSE.txt and /vendor/capstone-core-LICENSE.txt
+
+DBG Desk browser-engine.js, browser-worker.js and browser-ui.js:
+  SPDX-License-Identifier: GPL-2.0-only. Their source is the served JavaScript.
+  Copyright 2026 DBG Desk contributors.
+  The local source ZIP also contains these source files and build scripts.
+
+These components are provided without warranty. See the full licenses above.
+
+SHA-256 of pinned runtime files:
+643adbbb0c77eadb71182f116c9da0860814221a25194dac3ed561589929ef6d  unicorn.js
+cb88f8a55326cc19493db560a1d14809dc84fbe36e126d50b8acb84df2299ca8  capstone.js
+2e71bc203418c273c10c9f21fece3a000a616c96810839dc83eda4c5ca86bf2e  capstone.wasm

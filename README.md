@@ -1,6 +1,6 @@
 # DBG Desk
 
-한국어·영어 디버깅 가이드와 로컬 GDB 디버거 다운로드.
+설치 없는 x86/x64 브라우저 CPU 디버거, 한국어·영어 가이드와 고급 로컬 GDB 모드.
 
 Website: https://siwoo125.github.io
 
