@@ -43,12 +43,6 @@ h1 { margin: 0; font-size: 18px; font-weight: 600; }
 .engine-setup { margin: 0 0 10px; padding: 8px 10px; border: 1px solid var(--line); background: #fafafa; }
 .engine-setup p { max-width: 850px; margin: 8px 0 0; font-size: 12px; line-height: 1.7; }
 .debugger-link { display: inline-block; padding: 7px 16px; border: 1px solid #999; color: #222; text-decoration: none; }
-.download-prompt { width: 440px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); overflow: auto; padding: 22px; border: 1px solid #aaa; color: var(--text); background: white; }
-.download-prompt::backdrop { background: rgb(0 0 0 / 30%); }
-.download-prompt h2 { margin: 0 0 15px; font-size: 18px; }
-.download-prompt p { margin: 0 0 12px; font-size: 13px; line-height: 1.8; }
-.download-prompt-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; margin: 18px 0 12px; }
-.download-prompt .download-prompt-note { margin: 0; color: #666; font-size: 11px; }
 .ctf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 18px; margin-top: 12px; }
 .ctf-grid h2 { font-size: 13px; font-weight: 500; }
 .ctf-grid form { display: grid; gap: 5px; margin: 10px 0 16px; }

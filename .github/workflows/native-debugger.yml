@@ -52,7 +52,6 @@ jobs:
           node tests/ctf-ui.test.cjs
           node tests/ctf-ui.test.cjs --en
           node tests/public_debugger.test.cjs
-          node tests/download_prompt.test.cjs
   linux-gdb:
     runs-on: ubuntu-latest
     timeout-minutes: 15
