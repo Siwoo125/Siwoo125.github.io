@@ -49,3 +49,38 @@ jobs:
           node tests/memory-tools.test.cjs
           node tests/advanced-ui.test.cjs
           node tests/advanced-ui.test.cjs --en
+          node tests/ctf-ui.test.cjs
+          node tests/ctf-ui.test.cjs --en
+          node tests/public_debugger.test.cjs
+          node tests/download_prompt.test.cjs
+  linux-gdb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install native GDB and GCC
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdb gcc
+      - name: Extract the downloadable source
+        run: |
+          python -m zipfile -e downloads/dbg-local-v0.1.zip unpacked
+          cp downloads/dbg-local-v0.1.zip unpacked/dbg-local/
+      - name: Native ELF, PTY input and all Python checks
+        working-directory: unpacked/dbg-local
+        run: |
+          python -c "import shutil; assert shutil.which('gdb') and shutil.which('gcc')"
+          python -m unittest discover -s tests -v
+      - name: Browser CTF controls
+        working-directory: unpacked/dbg-local
+        run: |
+          node tests/ctf-ui.test.cjs
+          node tests/ctf-ui.test.cjs --en
+          node tests/file_open.test.cjs
+          node tests/file_open.test.cjs --en
