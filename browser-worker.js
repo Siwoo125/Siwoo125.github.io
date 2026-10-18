@@ -11,6 +11,7 @@ onmessage=event=>{
       if(data.memoryAddress!==undefined)DBGCPU.address(data.memoryAddress);
       let state;
       if(action==='load')state=engine.load(data.bytes);
+      else if(action==='restore')state=engine.restore(data.bytes,data.checkpoint);
       else {
         if(!engine.cpu)throw Error('Open a binary first.');
         if(action==='step')state=engine.run(1);
@@ -22,10 +23,11 @@ onmessage=event=>{
           if(engine.breakpoints.size>=128)throw Error('At most 128 breakpoints.');
           engine.breakpoints.add(DBGCPU.address(data.address));
         } else if(action==='breakpoint-remove')engine.breakpoints.delete(DBGCPU.address(data.address));
-        else if(action!=='state')throw Error('Unknown browser action.');
+        else if(action!=='state' && action!=='checkpoint')throw Error('Unknown browser action.');
         state=engine.snapshot(data.memoryAddress);
       }
-      postMessage({id,ok:true,state});
+      const checkpoint=(data.captureSession || action==='checkpoint')?engine.checkpoint():undefined;
+      postMessage({id,ok:true,state,checkpoint});
     } catch(error){postMessage({id,ok:false,error:String(error.message||error)});}
   });
 };

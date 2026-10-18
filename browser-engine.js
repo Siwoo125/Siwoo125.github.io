@@ -96,7 +96,11 @@
         for (const range of ranges) { const last=this.ranges.at(-1); if(last && range[0]<=last[1])last[1]=Math.max(last[1],range[1]);else this.ranges.push(range); }
         if (this.ranges.reduce((n,r)=>n+r[1]-r[0],0)>MAX_MEMORY) throw Error('Mapped image exceeds 64 MiB.');
         this.ranges.push([STACK,STACK+STACK_SIZE]);
-        for (const [start,end] of this.ranges)this.cpu.mem_map(start,end-start,u.PROT_ALL);
+        const zeros=new Uint8Array(1024*1024);
+        for (const [start,end] of this.ranges) {
+          this.cpu.mem_map(start,end-start,u.PROT_ALL);
+          for(let at=start;at<end;at+=zeros.length)this.cpu.mem_write(at,zeros.subarray(0,Math.min(zeros.length,end-at)));
+        }
         for (const s of image.segments)if(s.data.length)this.cpu.mem_write(s.start,s.data);
         this.names=image.bits===32?['eax','ebx','ecx','edx','esi','edi','ebp','esp','eip','eflags']:['rax','rbx','rcx','rdx','rsi','rdi','rbp','rsp','r8','r9','r10','r11','r12','r13','r14','r15','rip','eflags'];
         this.pcName=image.bits===32?'eip':'rip'; this.spName=image.bits===32?'esp':'rsp';
@@ -169,6 +173,84 @@
         }
       } catch(error){this.status='paused';this.reason='Execution stopped: '+String(error.message||error)+'. A required library, API or memory region may be unavailable.';}
       return this.snapshot();
+    }
+    extraRegisterNames() {
+      return ['CR0','CR2','CR3','CR4',...(this.image.bits===64?['CR8']:[]),'GDTR','IDTR','LDTR','TR','CS','DS','ES','FS','GS','SS','FS_BASE',...(this.image.bits===64?['GS_BASE']:[]),
+        'DR0','DR1','DR2','DR3','DR6','DR7','FPCW','FPSW','FPTAG','FIP','FCS','FDP','FDS','FOP','MXCSR',
+        ...Array.from({length:8},(_,i)=>'FP'+i),
+        ...(this.image.bits===64?['XMM','YMM','ZMM']:['XMM','YMM']).flatMap(prefix=>Array.from({length:this.image.bits===64?32:8},(_,i)=>prefix+i))];
+    }
+    rawRegister(name, data) {
+      // Public register APIs re-create CPU state without serializing WASM pointers.
+      const u=this.uc, id=u['X86_REG_'+name];
+      if(id===undefined)throw Error('Unsupported register.');
+      const ptr=u._malloc(64);
+      try {
+        for(let i=0;i<64;i++)u.setValue(ptr+i,data?data[i]:0,'i8');
+        const result=u.ccall(data?'uc_reg_write':'uc_reg_read','number',['number','number','number'],[u.getValue(this.cpu.handle_ptr,'*'),id,ptr]);
+        if(result!==u.ERR_OK)throw Error('Register '+name+' is unavailable.');
+        return data?undefined:Uint8Array.from({length:64},(_,i)=>u.getValue(ptr+i,'i8')&255);
+      } finally {u._free(ptr);}
+    }
+    checkpoint() {
+      if(!this.cpu)throw Error('Open a binary first.');
+      const pages=[];
+      for(const [start,end] of this.ranges) {
+        for(let offset=start;offset<end;offset+=1024*1024) {
+          const block=this.cpu.mem_read(offset,Math.min(1024*1024,end-offset));
+          for(let i=0;i<block.length;i+=PAGE) {
+            const page=block.subarray(i,i+PAGE);
+            if(page.some(value=>value!==0))pages.push({start:offset+i,data:page.slice()});
+          }
+        }
+      }
+      const extra=[];
+      for(const name of this.extraRegisterNames()) {
+        try {extra.push({name,data:this.rawRegister(name)});}catch(_){}
+      }
+      return {version:1,engine:'unicorn-x86-2.1.4',format:this.image.format,bits:this.image.bits,entry:this.image.entry,
+        registers:Object.fromEntries(this.names.map(name=>[name,hex(this.getRegister(name))])),extra,pages,
+        status:this.status,reason:this.reason,instructions:this.instructions,breakpoints:[...this.breakpoints],
+        output:this.output,input:new Uint8Array(this.input)};
+    }
+    restore(bytes, saved) {
+      const candidate=new BrowserEngine(this.uc,this.cs);
+      try {
+        candidate.load(bytes);
+        candidate.applyCheckpoint(saved);
+      } catch(error) {candidate.close();throw error;}
+      this.close();Object.assign(this,candidate);
+      return this.snapshot();
+    }
+    applyCheckpoint(saved) {
+      if(!saved || saved.version!==1 || saved.engine!=='unicorn-x86-2.1.4' || saved.format!==this.image.format || saved.bits!==this.image.bits || saved.entry!==this.image.entry)throw Error('The saved session is incompatible with this engine or file.');
+      if(!['ready','paused','waiting','halted','exited','unsupported'].includes(saved.status) || typeof saved.reason!=='string' || saved.reason.length>4096 || !Number.isSafeInteger(saved.instructions) || saved.instructions<0)throw Error('Invalid saved execution state.');
+      if(typeof saved.output!=='string' || saved.output.length>65536 || !(saved.input instanceof Uint8Array) || saved.input.length>65536)throw Error('Invalid saved input/output.');
+      if(!Array.isArray(saved.breakpoints) || saved.breakpoints.length>128 || saved.breakpoints.some(value=>address(value)!==value))throw Error('Invalid saved breakpoints.');
+      if(!saved.registers || Object.keys(saved.registers).length!==this.names.length || this.names.some(name=>typeof saved.registers[name]!=='string' || !/^0x[0-9a-f]{1,16}$/i.test(saved.registers[name])))throw Error('Invalid saved registers.');
+      const maxPages=this.ranges.reduce((n,r)=>n+(r[1]-r[0])/PAGE,0), seen=new Set();
+      if(!Array.isArray(saved.pages) || saved.pages.length>maxPages)throw Error('Invalid saved memory.');
+      for(const page of saved.pages) {
+        if(!page || !Number.isSafeInteger(page.start) || page.start%PAGE || !(page.data instanceof Uint8Array) || page.data.length!==PAGE || seen.has(page.start) || !this.ranges.some(r=>page.start>=r[0]&&page.start+PAGE<=r[1]))throw Error('Invalid saved memory page.');
+        seen.add(page.start);
+      }
+      const allowed=new Set(this.extraRegisterNames()), names=new Set();
+      if(!Array.isArray(saved.extra) || saved.extra.length>allowed.size)throw Error('Invalid saved CPU context.');
+      for(const reg of saved.extra) {
+        if(!reg || !allowed.has(reg.name) || names.has(reg.name) || !(reg.data instanceof Uint8Array) || reg.data.length!==64)throw Error('Invalid saved CPU register.');
+        names.add(reg.name);
+      }
+      // Clear every mapped page so a page that was deliberately zeroed stays zero.
+      const zeros=new Uint8Array(1024*1024);
+      for(const [start,end] of this.ranges)for(let at=start;at<end;at+=zeros.length)this.cpu.mem_write(at,zeros.subarray(0,Math.min(zeros.length,end-at)));
+      for(const page of saved.pages)this.cpu.mem_write(page.start,page.data);
+      for(const reg of saved.extra) {
+        const current=this.rawRegister(reg.name);
+        if(reg.data.some((byte,i)=>byte!==current[i]))this.rawRegister(reg.name,reg.data);
+      }
+      for(const name of this.names)this.setRegister(name,saved.registers[name]);
+      this.status=saved.status;this.reason=saved.reason;this.instructions=saved.instructions;
+      this.breakpoints=new Set(saved.breakpoints);this.output=saved.output;this.input=Array.from(saved.input);
     }
     snapshot(memoryAddress) {
       if(!this.cpu)return {status:'empty'};
