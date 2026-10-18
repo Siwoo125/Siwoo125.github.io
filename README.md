@@ -6,4 +6,4 @@ Website: https://siwoo125.github.io
 
 This repository contains the static public website. The debugger runs on the user’s own computer. Download the source ZIP from the site for the local server, tests and setup instructions. No debugging API is hosted on GitHub Pages.
 
-Contact: psiwoo66@gmail.com
+Contact: https://siwoo125.github.io/contact/
