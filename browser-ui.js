@@ -145,7 +145,7 @@
     $('cpu-history').replaceChildren();
     for(const item of [...history].reverse()) {const li=document.createElement('li');li.textContent=`${new Date(item.at).toLocaleTimeString(en?'en-US':'ko-KR')} · ${labels[item.action]||item.action} · ${item.pc} · ${item.instructions}`;$('cpu-history').append(li);}
   }
-  function storageError(error) {saveStatus.textContent=T('저장 실패: 브라우저 저장소 권한이나 남은 공간을 확인하세요. 현재 실행은 계속 사용할 수 있습니다. ','Save failed: check browser storage permissions and free space. You can keep using the current session. ')+String(error.message||error);}
+  function storageError(error) {saveStatus.textContent=T('저장하지 못했습니다. 브라우저 저장 공간과 권한을 확인하세요. ','Could not save. Check browser storage permissions and free space. ')+String(error.message||error);}
   function savedLabel(at) {saveStatus.textContent=T('이 기기에 저장됨 · ','Saved on this device · ')+new Date(at).toLocaleString(en?'en-US':'ko-KR');}
   async function persist(checkpoint) {
     if(!checkpoint||!original){controls();return;}
@@ -179,7 +179,7 @@
         original={bytes:session.bytes,name:session.name};$('cpu-filename').textContent=session.name;memoryAddress=session.memoryAddress;
         if(memoryAddress!==undefined)await request('state',{memoryAddress});
         history=Array.isArray(session.history)?session.history.slice(-100).filter(i=>i&&typeof i.action==='string'&&i.action.length<40&&Number.isFinite(i.at)&&Number.isSafeInteger(i.instructions)&&/^0x[0-9a-f]+$/i.test(i.pc)):[];
-        renderHistory();savedLabel(session.at);notice.textContent=T('이전 작업을 복원했습니다. 실행 버튼을 누르면 이어서 실행합니다.','Previous session restored. Press Step or Continue to resume.');
+        renderHistory();savedLabel(session.at);notice.textContent=T('이전 작업을 불러왔습니다.','Previous session loaded.');
       } else saveStatus.textContent=autoSave?T('자동 저장 켜짐 · 저장된 작업 없음','Auto-save on · no saved session'):T('자동 저장 꺼짐','Auto-save off');
     } catch(error){storageError(error);}
     finally{loading=false;controls();}

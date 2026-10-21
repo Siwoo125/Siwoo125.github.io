@@ -124,7 +124,19 @@
       if(bits===64)this.cpu.reg_write_i64(id,value);else this.cpu.reg_write_i32(id,Number(value)|0);
     }
     read(start,count) {const r=this.ranges.find(r=>start>=r[0] && start<r[1]);if(!r)throw Error('Address is not mapped.');return Array.from(this.cpu.mem_read(start,Math.min(count,r[1]-start)));}
-    memoryWrite(start,bytes) {start=address(start);if(!bytes.length||bytes.length>256||bytes.some(b=>!Number.isInteger(b)||b<0||b>255))throw Error('Write 1–256 HEX bytes.');if(!this.ranges.some(r=>start>=r[0]&&start+bytes.length<=r[1]))throw Error('Write is outside mapped memory.');this.cpu.mem_write(start,bytes);}
+    memoryWrite(start,bytes) {
+      start=address(start);
+      if(!bytes.length||bytes.length>256||bytes.some(b=>!Number.isInteger(b)||b<0||b>255))throw Error('Write 1–256 HEX bytes.');
+      if(!this.ranges.some(r=>start>=r[0]&&start+bytes.length<=r[1]))throw Error('Write is outside mapped memory.');
+      const pageStart=Math.floor(start/PAGE)*PAGE, end=Math.ceil((start+bytes.length)/PAGE)*PAGE;
+      const pages=this.cpu.mem_read(pageStart,end-pageStart);
+      pages.set(bytes,start-pageStart);
+      // This binding does not export uc_ctl_remove_cache. Re-map the affected
+      // pages to discard translated instructions, retaining all surrounding bytes.
+      this.cpu.mem_unmap(pageStart,end-pageStart);
+      this.cpu.mem_map(pageStart,end-pageStart,this.uc.PROT_ALL);
+      this.cpu.mem_write(pageStart,pages);
+    }
     feed(bytes) {if(bytes.length>65536 || this.input.length+bytes.length>65536 || bytes.some(b=>!Number.isInteger(b)||b<0||b>255))throw Error('Input is limited to 64 KiB.');this.input.push(...bytes);if(this.status==='waiting')this.status='ready';}
     syscall(pc,size) {
       const x64=this.image.bits===64;
