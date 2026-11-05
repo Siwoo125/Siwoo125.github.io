@@ -7,6 +7,7 @@
   if(!settings || location.origin!==settings.adOrigin ||
      !/^ca-pub-[0-9]{16}$/.test(settings.adClient) ||
      !/^https:\/\/[A-Za-z0-9.-]+$/.test(settings.adOrigin))return;
+  function startAds() {
   const slots=[...document.querySelectorAll('ins.adsbygoogle')].filter(slot=>slot.dataset.adClient===settings.adClient);
   if(!slots.length)return;
   const loader=document.createElement('script');
@@ -38,4 +39,8 @@
       footer.append(privacyButton);
     });
   }});
+  }
+  const entryDialog=document.getElementById('gdb-download-dialog');
+  if(entryDialog)entryDialog.addEventListener('close',startAds,{once:true});
+  else startAds();
 })();

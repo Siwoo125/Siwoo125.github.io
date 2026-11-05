@@ -55,6 +55,7 @@ jobs:
           node tests/browser_cpu.test.cjs
           node tests/browser_storage.test.cjs
           node tests/guide_ads.test.cjs
+          node tests/gdb_prompt.test.cjs
   linux-gdb:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -85,6 +86,7 @@ jobs:
           node tests/browser_cpu.test.cjs
           node tests/browser_storage.test.cjs
           node tests/guide_ads.test.cjs
+          node tests/gdb_prompt.test.cjs
           node tests/ctf-ui.test.cjs
           node tests/ctf-ui.test.cjs --en
           node tests/file_open.test.cjs

@@ -15,12 +15,15 @@
     for(const el of document.querySelectorAll('[data-cpu-action]'))el.disabled=busy||!loaded;
     $('cpu-step').disabled=busy||!loaded||['halted','exited','unsupported'].includes(state?.status);
     $('cpu-continue').disabled=$('cpu-step').disabled;
+    $('cpu-over').disabled=$('cpu-step').disabled;
+    $('cpu-cancel-target').disabled=busy||!state?.runTarget;
     $('cpu-reset').disabled=busy||!original;
     $('cpu-open').disabled=busy;
     for(const b of document.querySelectorAll('[data-example]'))b.disabled=busy;
   }
   function clearData() {
-    for(const id of ['cpu-assembly','cpu-registers','cpu-register-name','cpu-breakpoints'])$(id).replaceChildren();
+    for(const id of ['cpu-assembly','cpu-registers','cpu-register-name','cpu-breakpoints','cpu-stack'])$(id).replaceChildren();
+    $('cpu-stack-error').textContent='';$('cpu-run-target').textContent='';
     for(const id of ['cpu-output','cpu-memory','cpu-file-info','cpu-runtime-notes','cpu-input-count'])$(id).textContent='';
   }
   function ensureWorker() {
@@ -50,6 +53,7 @@
     });
   }
   async function act(action,data={}) {
+    if(loading||saving||pending)return;
     try {
       const reply=await request(action,{...data,memoryAddress,captureSession:autoSave});
       record(action);await persist(reply.checkpoint);
@@ -66,6 +70,7 @@
     if(translations[text])return translations[text];
     if(text?.startsWith('Exit code '))return '종료 코드 '+text.slice(10);
     if(text?.startsWith('Address breakpoint '))return '주소 중단점 '+text.slice(19);
+    if(text?.startsWith('Target address '))return '목표 주소에 도착했습니다. '+text.slice(15);
     if(text?.startsWith('Unsupported Linux syscall '))return '지원하지 않는 Linux 시스템 호출에서 정지했습니다. '+text;
     if(text?.startsWith('Execution stopped:'))return '명령 실행을 멈췄습니다. 라이브러리·API·메모리 지원 범위를 확인하세요. '+text;
     return text;
@@ -80,6 +85,13 @@
       const td=document.createElement('td'),b=document.createElement('button');b.type='button';b.textContent=insn.address;
       b.title=T('이 주소에 중단점 추가','Add a breakpoint here');b.addEventListener('click',()=>act('breakpoint-add',{address:insn.address}));td.append(b);tr.append(td);
       for(const text of [insn.bytes.map(b=>b.toString(16).padStart(2,'0')).join(' '),insn.mnemonic+' '+insn.operands]){const cell=document.createElement('td');cell.textContent=text;tr.append(cell);}
+      const actions=document.createElement('td');
+      for(const [label,action] of [[T('여기까지','Run here'),'run-to'],['NOP','nop']]) {
+        const button=document.createElement('button');button.type='button';button.textContent=label;button.dataset.cpuAction='';
+        button.title=action==='nop'?T('이 명령어를 NOP으로 덮어쓰기','Replace this instruction with NOPs'):T('이 주소에서 정지','Stop at this address');
+        button.addEventListener('click',()=>act(action,{address:insn.address}));actions.append(button);
+      }
+      tr.append(actions);
       assembly.append(tr);
     }
     const registers=$('cpu-registers');registers.replaceChildren();
@@ -91,7 +103,24 @@
     if([...selector.options].some(o=>o.value===selected))selector.value=selected;
     const breaks=$('cpu-breakpoints');breaks.replaceChildren();
     for(const address of state.breakpoints||[]) {
-      const button=document.createElement('button');button.type='button';button.textContent=address+' ×';button.addEventListener('click',()=>act('breakpoint-remove',{address}));breaks.append(button);
+      const row=document.createElement('label'),toggle=document.createElement('input'),text=document.createElement('code'),button=document.createElement('button');
+      toggle.type='checkbox';toggle.checked=!(state.disabledBreakpoints||[]).includes(address);toggle.dataset.cpuAction='';toggle.setAttribute('aria-label',T('중단점 켜기·끄기 ','Enable or disable breakpoint ')+address);
+      toggle.addEventListener('change',()=>act('breakpoint-toggle',{address}));text.textContent=address;
+      button.type='button';button.textContent='×';button.dataset.cpuAction='';button.setAttribute('aria-label',T('중단점 삭제 ','Remove breakpoint ')+address);button.addEventListener('click',()=>act('breakpoint-remove',{address}));row.append(toggle,text,button);breaks.append(row);
+    }
+    $('cpu-run-target').textContent=state.runTarget?T('실행 목표: ','Execution target: ')+state.runTarget:'';
+    const stack=$('cpu-stack');stack.replaceChildren();$('cpu-stack-error').textContent=state.stackError||'';
+    for(const word of state.stack||[]) {
+      const row=document.createElement('tr');
+      for(const value of [word.address,(word.sp?'SP':'+0x'+word.offset.toString(16))+(word.bp?' · BP':''),word.value]) {
+        const cell=document.createElement('td');
+        if(value===word.value&&BigInt(value)<=BigInt(Number.MAX_SAFE_INTEGER)) {
+          const button=document.createElement('button');button.type='button';button.textContent=value;button.dataset.cpuAction='';
+          button.addEventListener('click',()=>{memoryAddress=value;act('state');});cell.append(button);
+        }else cell.textContent=value;
+        row.append(cell);
+      }
+      stack.append(row);
     }
     $('cpu-memory-address').value=state.memoryAddress;
     const lines=[];
@@ -128,6 +157,9 @@
     catch(e){notice.textContent=e.message;}finally{loading=false;controls(!!pending);}
   });
   $('cpu-step').addEventListener('click',()=>act('step'));
+  $('cpu-over').addEventListener('click',()=>act('step-over'));
+  $('cpu-run-form').addEventListener('submit',event=>{event.preventDefault();act('run-to',{address:$('cpu-run-address').value.trim()});});
+  $('cpu-cancel-target').addEventListener('click',()=>act('cancel-target'));
   $('cpu-continue').addEventListener('click',()=>act('continue'));
   $('cpu-reset').addEventListener('click',async()=>{if(!original||pending||loading||saving)return;loading=true;controls();try{await load(original.bytes,original.name);}finally{loading=false;controls();}});
   $('cpu-break-form').addEventListener('submit',event=>{event.preventDefault();act('breakpoint-add',{address:$('cpu-break-address').value.trim()});});
@@ -135,13 +167,13 @@
   $('cpu-register-form').addEventListener('submit',event=>{event.preventDefault();const value=$('cpu-register-value').value.trim();if(!/^(?:0x[0-9a-f]+|[0-9]+)$/i.test(value)){notice.textContent=T('정수나 0x로 시작하는 값을 입력하세요.','Enter an integer or a value beginning with 0x.');return;}act('register-write',{name:$('cpu-register-name').value,value});});
   $('cpu-write-form').addEventListener('submit',event=>{event.preventDefault();try{act('memory-write',{address:$('cpu-write-address').value.trim(),bytes:bytesFromHex($('cpu-write-bytes').value)});}catch(e){notice.textContent=e.message;}});
   $('cpu-input-form').addEventListener('submit',event=>{event.preventDefault();try{const text=$('cpu-input').value;const bytes=$('cpu-input-mode').value==='hex'?bytesFromHex(text):Array.from(new TextEncoder().encode(text+($('cpu-newline').checked?'\n':'')));act('input',{bytes});}catch(e){notice.textContent=e.message;}});
-  document.addEventListener('keydown',event=>{if(['INPUT','TEXTAREA','SELECT'].includes(event.target.tagName)||pending)return;if(event.key==='F7'){event.preventDefault();if(!$('cpu-step').disabled)act('step');}else if(event.key==='F9'){event.preventDefault();if(!$('cpu-continue').disabled)act('continue');}});
+  document.addEventListener('keydown',event=>{if(['INPUT','TEXTAREA','SELECT'].includes(event.target.tagName)||pending||saving||loading||document.querySelector('dialog[open]'))return;if(event.key==='F7'){event.preventDefault();if(!$('cpu-step').disabled)act('step');}else if(event.key==='F8'){event.preventDefault();if(!$('cpu-over').disabled)act('step-over');}else if(event.key==='F9'){event.preventDefault();if(!$('cpu-continue').disabled)act('continue');}});
   function record(action) {
     history.push({action,at:Date.now(),instructions:state.instructions,pc:state.registers[state.bits===64?'rip':'eip']});
     history=history.slice(-100);renderHistory();
   }
   function renderHistory() {
-    const labels={load:T('파일 열기','Open file'),step:T('한 명령 실행','Step'),continue:T('계속 실행','Continue'),state:T('메모리 조회','Inspect memory'),'memory-write':T('메모리 수정','Write memory'),'register-write':T('레지스터 수정','Write register'),input:T('입력 추가','Queue input'),'breakpoint-add':T('중단점 추가','Add breakpoint'),'breakpoint-remove':T('중단점 삭제','Remove breakpoint')};
+    const labels={load:T('파일 열기','Open file'),step:T('한 명령 실행','Step'),'step-over':T('함수 넘기기','Step over'),'run-to':T('주소까지 실행','Run to address'),nop:T('NOP 패치','NOP patch'),'breakpoint-toggle':T('중단점 전환','Toggle breakpoint'),continue:T('계속 실행','Continue'),state:T('메모리 조회','Inspect memory'),'memory-write':T('메모리 수정','Write memory'),'register-write':T('레지스터 수정','Write register'),input:T('입력 추가','Queue input'),'breakpoint-add':T('중단점 추가','Add breakpoint'),'breakpoint-remove':T('중단점 삭제','Remove breakpoint')};
     $('cpu-history').replaceChildren();
     for(const item of [...history].reverse()) {const li=document.createElement('li');li.textContent=`${new Date(item.at).toLocaleTimeString(en?'en-US':'ko-KR')} · ${labels[item.action]||item.action} · ${item.pc} · ${item.instructions}`;$('cpu-history').append(li);}
   }

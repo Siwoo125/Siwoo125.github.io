@@ -84,10 +84,11 @@
     return {format,bits,entry,segments,notes};
   }
   class BrowserEngine {
-    constructor(uc,cs) { this.uc=uc; this.cs=cs; this.breakpoints=new Set(); this.output=''; this.input=[]; this.status='empty'; }
+    constructor(uc,cs) { this.uc=uc; this.cs=cs; this.breakpoints=new Set(); this.disabledBreakpoints=new Set(); this.runTarget=null; this.output=''; this.input=[]; this.status='empty'; }
     close() { if(this.cpu)this.cpu.close(); if(this.decoder)this.decoder.close(); this.cpu=null;this.decoder=null; }
     load(bytes) {
       const image=parseBinary(bytes); this.close(); this.image=image; this.output='';this.input=[];this.breakpoints.clear();this.instructions=0;
+      this.disabledBreakpoints.clear();this.runTarget=null;
       const u=this.uc; this.cpu=new u.Unicorn(u.ARCH_X86,image.bits===32?u.MODE_32:u.MODE_64);
       this.decoder=new this.cs.Capstone(this.cs.ARCH_X86,image.bits===32?this.cs.MODE_32:this.cs.MODE_64);
       try {
@@ -179,12 +180,42 @@
       try {
         for(let i=0;i<count;i++) {
           const pc=Number(this.getRegister(this.pcName));
-          if(i && this.breakpoints.has(pc)){this.status='paused';this.reason='Address breakpoint '+hex(pc);break;}
+          if(this.runTarget===pc){this.runTarget=null;this.status='paused';this.reason='Target address '+hex(pc);break;}
+          if(i && this.breakpoints.has(pc)&&!this.disabledBreakpoints.has(pc)){this.status='paused';this.reason='Address breakpoint '+hex(pc);break;}
           if(!this.stepOne() || this.status!=='ready')break;
           if(i===count-1 || Date.now()-began>150){if(count>1)this.reason='Execution budget reached. Continue to run more.';break;}
         }
       } catch(error){this.status='paused';this.reason='Execution stopped: '+String(error.message||error)+'. A required library, API or memory region may be unavailable.';}
+      if(['exited','halted','unsupported'].includes(this.status))this.runTarget=null;
       return this.snapshot();
+    }
+    runTo(value) {
+      if(!this.cpu||['exited','halted','unsupported'].includes(this.status))throw Error('Reload the file to start again.');
+      const target=address(value);
+      if(!this.ranges.some(r=>target>=r[0]&&target<r[1]))throw Error('Target address is not mapped.');
+      this.runTarget=target;
+      return this.run(10000);
+    }
+    stepOver() {
+      const pc=Number(this.getRegister(this.pcName));
+      const instruction=this.decoder.disasm(this.read(pc,15),pc)[0];
+      if(instruction?.mnemonic==='call')return this.runTo(pc+instruction.size);
+      this.runTarget=null;return this.run(1);
+    }
+    nop(value) {
+      const at=address(value),instruction=this.decoder.disasm(this.read(at,15),at)[0];
+      if(!instruction||instruction.size<1||instruction.size>15)throw Error('No complete instruction at this address.');
+      this.memoryWrite(at,new Array(instruction.size).fill(0x90));
+    }
+    stackView() {
+      const start=Number(this.getRegister(this.spName)),width=this.image.bits/8;
+      if(!Number.isSafeInteger(start))throw Error('Stack pointer is outside the supported range.');
+      const bytes=this.read(start,32*width),result=[],bp=this.getRegister(this.image.bits===64?'rbp':'ebp');
+      for(let i=0;i+width<=bytes.length;i+=width) {
+        let value=0n;for(let j=width-1;j>=0;j--)value=(value<<8n)|BigInt(bytes[i+j]);
+        result.push({address:hex(start+i),offset:i,value:hex(value),sp:i===0,bp:bp===BigInt(start+i)});
+      }
+      return result;
     }
     extraRegisterNames() {
       return ['CR0','CR2','CR3','CR4',...(this.image.bits===64?['CR8']:[]),'GDTR','IDTR','LDTR','TR','CS','DS','ES','FS','GS','SS','FS_BASE',...(this.image.bits===64?['GS_BASE']:[]),
@@ -223,7 +254,7 @@
       return {version:1,engine:'unicorn-x86-2.1.4',format:this.image.format,bits:this.image.bits,entry:this.image.entry,
         registers:Object.fromEntries(this.names.map(name=>[name,hex(this.getRegister(name))])),extra,pages,
         status:this.status,reason:this.reason,instructions:this.instructions,breakpoints:[...this.breakpoints],
-        output:this.output,input:new Uint8Array(this.input)};
+        output:this.output,input:new Uint8Array(this.input),disabledBreakpoints:[...this.disabledBreakpoints],runTarget:this.runTarget};
     }
     restore(bytes, saved) {
       const candidate=new BrowserEngine(this.uc,this.cs);
@@ -239,6 +270,9 @@
       if(!['ready','paused','waiting','halted','exited','unsupported'].includes(saved.status) || typeof saved.reason!=='string' || saved.reason.length>4096 || !Number.isSafeInteger(saved.instructions) || saved.instructions<0)throw Error('Invalid saved execution state.');
       if(typeof saved.output!=='string' || saved.output.length>65536 || !(saved.input instanceof Uint8Array) || saved.input.length>65536)throw Error('Invalid saved input/output.');
       if(!Array.isArray(saved.breakpoints) || saved.breakpoints.length>128 || saved.breakpoints.some(value=>address(value)!==value))throw Error('Invalid saved breakpoints.');
+      const disabled=saved.disabledBreakpoints||[],target=saved.runTarget??null;
+      if(!Array.isArray(disabled)||disabled.length>128||disabled.some(value=>!saved.breakpoints.includes(value)))throw Error('Invalid disabled breakpoints.');
+      if(target!==null&&(address(target)!==target||!this.ranges.some(r=>target>=r[0]&&target<r[1])))throw Error('Invalid saved execution target.');
       if(!saved.registers || Object.keys(saved.registers).length!==this.names.length || this.names.some(name=>typeof saved.registers[name]!=='string' || !/^0x[0-9a-f]{1,16}$/i.test(saved.registers[name])))throw Error('Invalid saved registers.');
       const maxPages=this.ranges.reduce((n,r)=>n+(r[1]-r[0])/PAGE,0), seen=new Set();
       if(!Array.isArray(saved.pages) || saved.pages.length>maxPages)throw Error('Invalid saved memory.');
@@ -263,6 +297,7 @@
       for(const name of this.names)this.setRegister(name,saved.registers[name]);
       this.status=saved.status;this.reason=saved.reason;this.instructions=saved.instructions;
       this.breakpoints=new Set(saved.breakpoints);this.output=saved.output;this.input=Array.from(saved.input);
+      this.disabledBreakpoints=new Set(disabled);this.runTarget=target;
     }
     snapshot(memoryAddress) {
       if(!this.cpu)return {status:'empty'};
@@ -271,7 +306,8 @@
       try {assembly=this.decoder.disasm(this.read(pc,160),pc).slice(0,24).map(i=>({address:hex(i.address),bytes:Array.from(i.bytes||[]),mnemonic:i.mnemonic,operands:i.op_str,size:i.size}));}catch(_){}
       const start=memoryAddress===undefined?Number(this.getRegister(this.spName)):address(memoryAddress);
       try {memory=this.read(start,128);}catch(e){memoryError=e.message;}
-      return {status:this.status,reason:this.reason,format:this.image.format,bits:this.image.bits,entry:hex(this.image.entry),notes:this.image.notes,registers,assembly,memoryAddress:hex(start),memory,memoryError,output:this.output,instructions:this.instructions,breakpoints:[...this.breakpoints].map(hex),inputBytes:this.input.length};
+      let stack=[],stackError='';try{stack=this.stackView();}catch(e){stackError=e.message;}
+      return {status:this.status,reason:this.reason,format:this.image.format,bits:this.image.bits,entry:hex(this.image.entry),notes:this.image.notes,registers,assembly,memoryAddress:hex(start),memory,memoryError,stack,stackError,output:this.output,instructions:this.instructions,breakpoints:[...this.breakpoints].map(hex),disabledBreakpoints:[...this.disabledBreakpoints].map(hex),runTarget:this.runTarget===null?null:hex(this.runTarget),inputBytes:this.input.length};
     }
   }
   const api={BrowserEngine,parseBinary,address,MAX_FILE};
