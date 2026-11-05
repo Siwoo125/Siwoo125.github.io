@@ -20,4 +20,22 @@
     slot.dataset.adRequested='true';
     queue.push({});
   }
+  const privacy=window.googlefc=window.googlefc||{};
+  privacy.callbackQueue=privacy.callbackQueue||[];
+  let privacyButton;
+  privacy.callbackQueue.push({CONSENT_API_READY:()=>{
+    if(typeof window.__tcfapi!=='function')return;
+    window.__tcfapi('addEventListener',0,(data,success)=>{
+      if(privacyButton)privacyButton.hidden=!(success&&data?.gdprApplies);
+      if(!success||!data?.gdprApplies||privacyButton)return;
+      const footer=document.querySelector('.site-footer > div');
+      if(!footer)return;
+      privacyButton=document.createElement('button');
+      privacyButton.type='button';
+      privacyButton.className='privacy-options';
+      privacyButton.textContent=document.documentElement.lang==='en'?'Privacy and cookie settings':'개인정보 및 쿠키 설정';
+      privacyButton.addEventListener('click',()=>privacy.showRevocationMessage());
+      footer.append(privacyButton);
+    });
+  }});
 })();
